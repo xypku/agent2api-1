@@ -105,7 +105,22 @@ pub fn panel_router(state: ServerState) -> Router {
     // 见 session.rs），后来挪进 protected：桌面壳的管理请求由壳自动带第一把
     // Key，不受影响；而 headless/公网形态下它暴露账号昵称、各家健康状态等
     // 部署信息，不该在无 Key 的世界里裸奔（网页端 bridge 首次 401 会引导输入）。
+    //
+    // ── /health 也在这里挂（分端口形态的缺口修复，2026-10-19）─────────
+    // 原来只有 `gateway_router` 有条 /health，设了 `AGENT2API_PANEL_PORT`
+    // 之后面板端口对 /health 回 404。这打断了一个真实场景：**手机 APK 的
+    // 「添加服务器」只能填一个地址** —— 它先用 `/health` 探活（见
+    // mobile/src/api/client.ts 的 probe），随后所有数据请求打 `base + /api/*`。
+    // 分端口部署下这两类路径必然落在不同端口：填网关端口则探活过、面板 API
+    // 全 401；填面板端口则探活直接 404，连登录页都进不去 —— **没有哪个地址
+    // 是对的**。
+    //
+    // /health 只回 `{"status":"ok"}`、不含任何部署信息（网关端口那边也无条件
+    // 免鉴权），挂到面板端口不扩大暴露面。合并形态不会走到这里：面板路由
+    // 仅当 `panel_port` 存在时构造（见 server/mod.rs 的 start()），合并形态
+    // 用的是 gateway_router 里那一条，因此不存在同 path 重复注册。
     let public = Router::new()
+        .route("/health", get(api::health::handle))
         .route("/api/endpoints", get(api::endpoints::handle))
         // 面板登录：调用方此时没有任何凭证，必须挂 public —— 安全由
         // 失败锁定（同 IP 连续 5 次锁 5 分钟）与 bcrypt 校验成本承担
